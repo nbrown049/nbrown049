@@ -1,0 +1,172 @@
+#Imports and packages needed
+
+import csv
+import openpyxl
+
+import numpy as np
+import pandas as pd
+import scipy as sp
+import statsmodels.api as sm
+import statsmodels.formula.api as smf
+import math
+
+from sklearn import linear_model
+
+#--------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#Loads training file and cleans file
+train = pd.read_csv("/Users/natbrown/Desktop/ProblemSet_2022/Application_Train_01.csv")
+train = train.drop(['GameDate'], axis = 1)
+train = train.drop(['Season'], axis = 1)
+train = train.drop(['GameNumber'], axis = 1)
+train = train.drop(['GameSeqNum'], axis = 1)
+train = train.drop(['DayNight'], axis = 1)
+train = train.drop(['Venue'], axis = 1)
+train = train.drop(['Inning'], axis = 1)
+train = train.drop(['TopInning'], axis = 1)
+train = train.drop(['PAOfInning'], axis = 1)
+train = train.drop(['B1'], axis = 1)
+train = train.drop(['B2'], axis = 1)
+train = train.drop(['B3'], axis = 1)
+train = train.drop(['HomeTeam'], axis = 1)
+train = train.drop(['HomeScore'], axis = 1)
+train = train.drop(['AwayTeam'], axis = 1)
+train = train.drop(['AwayScore'], axis = 1)
+train = train.drop(['PitcherID'], axis = 1)
+train = train.drop(['PitcherName'], axis = 1)
+train = train.drop(['BatterID'], axis = 1)
+train = train.drop(['BatterName'], axis = 1)
+train = train.drop(['VideoLink'], axis = 1)
+train = train.drop(['PitcherHand'], axis = 1)
+train = train.drop(['BatterHand'], axis = 1)
+train.head()
+
+#Add binary pitchtypes
+train['FB'] = np.where(train['PitchType']!= 'FB',0,1)
+train['SI'] = np.where(train['PitchType']!= 'SI',0,1)
+train['CF'] = np.where(train['PitchType']!= 'CF',0,1)
+train['CB'] = np.where(train['PitchType']!= 'CB',0,1)
+train['SL'] = np.where(train['PitchType']!= 'SL',0,1)
+train['CH'] = np.where(train['PitchType']!= 'CH',0,1)
+train['SF'] = np.where(train['PitchType']!= 'SF',0,1)
+train.head()
+
+#Drop float categorization for pitchtype and result
+train = train.drop(['PitchType'], axis = 1)
+train = train.drop(['SwingFL'], axis = 1)
+train.head()
+
+#Perceived velocity calculation, and add to dataframe
+AvgExt = train['ReleaseLocY'].mean()
+FPSReleaseSpeed = train['ReleaseSpeed'] * 1.467
+PerceivedSpeed = train['ReleaseSpeed'] + (((AvgExt / FPSReleaseSpeed) - (train['ReleaseLocY'] / FPSReleaseSpeed)) * FPSReleaseSpeed)
+train['PerceivedSpeed'] = PerceivedSpeed
+train.head()
+
+#Add columns - perceived velocity delta from previous pitch
+train['PrevPitch_VeloDiff'] = np.where((train['PitchOfPA'] > train['PitchOfPA'].shift()),(train['PerceivedSpeed'] - train['PerceivedSpeed'].shift()),0)
+train['PrevPitch_HorzDiff'] = np.where((train['PitchOfPA'] > train['PitchOfPA'].shift()),(train['PitchBreakHorz'] - train['PitchBreakHorz'].shift()),0)
+train['PrevPitch_VertDiff'] = np.where((train['PitchOfPA'] > train['PitchOfPA'].shift()),(train['PitchBreakVert'] - train['PitchBreakVert'].shift()),0)
+train['PrevPitch_PlateLocX'] = np.where((train['PitchOfPA'] > train['PitchOfPA'].shift()),(train['PlateLocX'] - train['PlateLocX'].shift()),0)
+train['PrevPitch_PlateLocZ'] = np.where((train['PitchOfPA'] > train['PitchOfPA'].shift()),(train['PlateLocZ'] - train['PlateLocZ'].shift()),0)
+train.head()
+
+train['SwingMiss'] = [1 if x =='Swinging strike' else 0 for x in train['PitchResult']]
+train = train.drop(['PitchResult'], axis = 1)
+train = train.drop(['ReleaseSpeed'], axis = 1)
+train.head()
+
+#------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+test = pd.read_csv("/Users/natbrown/Desktop/ProblemSet_2022/Application_Holdout_01.csv")
+
+test_pitcherID = test['PitcherID']
+
+test = test.drop(['GameDate'], axis = 1)
+test = test.drop(['Season'], axis = 1)
+test = test.drop(['GameNumber'], axis = 1)
+test = test.drop(['GameSeqNum'], axis = 1)
+test = test.drop(['DayNight'], axis = 1)
+test = test.drop(['Inning'], axis = 1)
+test = test.drop(['TopInning'], axis = 1)
+test = test.drop(['PAOfInning'], axis = 1)
+test = test.drop(['B1'], axis = 1)
+test = test.drop(['B2'], axis = 1)
+test = test.drop(['B3'], axis = 1)
+test = test.drop(['HomeScore'], axis = 1)
+test = test.drop(['AwayScore'], axis = 1)
+test = test.drop(['PitcherID'], axis = 1)
+test = test.drop(['PitcherName'], axis = 1)
+test = test.drop(['PitcherHand'], axis = 1)
+test = test.drop(['BatterHand'], axis = 1)
+test.head()
+
+#Add binary pitchtypes
+test['FB'] = np.where(test['PitchType']!= 'FB',0,1)
+test['SI'] = np.where(test['PitchType']!= 'SI',0,1)
+test['CF'] = np.where(test['PitchType']!= 'CF',0,1)
+test['CB'] = np.where(test['PitchType']!= 'CB',0,1)
+test['SL'] = np.where(test['PitchType']!= 'SL',0,1)
+test['CH'] = np.where(test['PitchType']!= 'CH',0,1)
+test['SF'] = np.where(test['PitchType']!= 'SF',0,1)
+test.head()
+
+#Drop float categorization for pitchtype and result
+test = test.drop(['PitchType'], axis = 1)
+test.head()
+
+#Perceived velocity calculation, and add to dataframe
+AvgExt = test['ReleaseLocY'].mean()
+FPSReleaseSpeed = test['ReleaseSpeed'] * 1.467
+PerceivedSpeed = test['ReleaseSpeed'] + (((AvgExt / FPSReleaseSpeed) - (test['ReleaseLocY'] / FPSReleaseSpeed)) * FPSReleaseSpeed)
+test['PerceivedSpeed'] = PerceivedSpeed
+test.head()
+
+#Add columns - perceived velocity delta from previous pitch
+test['PrevPitch_VeloDiff'] = np.where((test['PitchOfPA'] > test['PitchOfPA'].shift()),(test['PerceivedSpeed'] - test['PerceivedSpeed'].shift()),0)
+test['PrevPitch_HorzDiff'] = np.where((test['PitchOfPA'] > test['PitchOfPA'].shift()),(test['PitchBreakHorz'] - test['PitchBreakHorz'].shift()),0)
+test['PrevPitch_VertDiff'] = np.where((test['PitchOfPA'] > test['PitchOfPA'].shift()),(test['PitchBreakVert'] - test['PitchBreakVert'].shift()),0)
+test['PrevPitch_PlateLocX'] = np.where((test['PitchOfPA'] > test['PitchOfPA'].shift()),(test['PlateLocX'] - test['PlateLocX'].shift()),0)
+test['PrevPitch_PlateLocZ'] = np.where((test['PitchOfPA'] > test['PitchOfPA'].shift()),(test['PlateLocZ'] - test['PlateLocZ'].shift()),0)
+test.head()
+
+test = test.drop(['ReleaseSpeed'], axis = 1)
+test.head()
+
+#------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+from sklearn import metrics
+
+#X = train.drop(['SwingMiss'], axis = "columns")
+#Y = train['SwingMiss']
+
+X_train, X_test, y_train, y_test = train_test_split(X, Y,test_size = 0.05, random_state = 20)                                     
+training_model = RandomForestClassifier(n_estimators = 128, random_state = 30, criterion='entropy').fit(X_train, y_train)
+y_prob = training_model.predict_proba(X_test)
+
+#print("Training accuracy is: ",training_model.score(X_train, y_train))
+#print("Testing accuracy is: ",training_model.score(X_test, y_test))
+
+#feature_list = list(X.columns)
+#featureImportances = pd.Series(training_model.feature_importances_, index = feature_list).sort_values(ascending=False)
+#print(featureImportances)
+
+import pickle
+#pickle.dump(training_model, open('finalmodel.pkl','wb'))
+model = pickle.load(open('finalmodel.pkl','rb'))
+
+test['Probability'] = model.predict_proba(test)[:,1]
+test.head()
+
+test.to_csv('Holdout_Final.csv')
+
+holdout_analysis = pd.read_csv("/Users/natbrown/Desktop/ProblemSet_2022/Holdout_Final.csv")
+holdout_analysis = pd.concat([test_pitcherID,holdout_analysis], axis = 1)
+holdout_analysis.head()
+holdout_pivot = pd.pivot_table(holdout_analysis, index=['PitcherID','FB','SI','CF','CB','SL','CH','SF'], values = ['Probability'], aggfunc='mean').reset_index()
+holdout_pivot = holdout_pivot.sort_values(by=['Probability'], ascending = False)
+
+print(holdout_pivot)
+
